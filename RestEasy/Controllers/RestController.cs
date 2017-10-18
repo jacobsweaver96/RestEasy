@@ -117,12 +117,11 @@ namespace RestEasy.Controllers
             try
             {
                 response.EndPointItems = GetRelatedRoutes();
-                response.ResponseCode = HttpStatusCode.OK;
             }
             catch (Exception ex)
             {
                 Log.Error($"Exception while getting related routing information", ex);
-                response.ResponseCode = HttpStatusCode.InternalServerError;
+                throw new HttpResponseException(HttpStatusCode.InternalServerError);
             }
 
             return response;
@@ -134,9 +133,13 @@ namespace RestEasy.Controllers
         /// <param name="callingAttributes">The calling methods attributes</param>
         /// <param name="dataExec">The data interaction function</param>
         /// <returns>An API formatted response</returns>
-        protected ApiResponse CreateRestResponse(IList<CustomAttributeData> callingAttributes, Func<DataResponse> dataExec)
+        protected async Task<ApiResponse> CreateRestResponse(IList<CustomAttributeData> callingAttributes, Func<Task<DataResponse>> dataExec)
         {
-            return CreateRestResponse<object, object>(callingAttributes, dataExec);
+            var tResponse = await CreateRestResponse<object, object>(callingAttributes, dataExec);
+            return new ApiResponse
+            {
+                EndPointItems = tResponse?.EndPointItems ?? new List<EndPointItem>()
+            };
         }
 
         /// <summary>
@@ -148,10 +151,10 @@ namespace RestEasy.Controllers
         /// <param name="dataExec">Function for getting data as a database model</param>
         /// <param name="transExec">Function for tranforming the database model to a serializable model</param>
         /// <returns>An API formatted response</returns>
-        protected ApiResponse CreateRestResponse<T, U>(IList<CustomAttributeData> callingAttributes,
-            Func<DataResponse> dataExec, Func<T, U> transExec = null)
+        protected async Task<ApiResponse<U>> CreateRestResponse<T, U>(IList<CustomAttributeData> callingAttributes,
+            Func<Task<DataResponse>> dataExec, Func<T, U> transExec = null) where U : new()
         {
-            ApiResponse response = new ApiResponse();
+            ApiResponse<U> response = new ApiResponse<U>();
             DataResponse ret;
 
             List<PermissionLevel> requiredPermissions = new List<PermissionLevel>();
@@ -180,50 +183,54 @@ namespace RestEasy.Controllers
                 var authHeader = HttpContext.Current.Request.Headers["Authorization"];
 
                 // Only allow https
-                if (HttpContext.Current.Request.Url.Scheme != Uri.UriSchemeHttps)
+                var isSchemeAllowed = HttpContext.Current.Request.Url.Scheme == Uri.UriSchemeHttps;
+                
+                if (!isSchemeAllowed)
                 {
-                    response.ResponseCode = HttpStatusCode.Forbidden;
-
                     if (HttpContext.Current.Request.Url.Scheme == Uri.UriSchemeHttp &&
                         !String.IsNullOrWhiteSpace(authHeader) && authHeader.Length == 32)
                     {
                         Log.Warn($"Client key beginning with {authHeader.Substring(0, 10)}... was receieved over an insecure connection");
                     }
+
+                    throw new HttpResponseException(HttpStatusCode.Forbidden);
                 }
-                else if (AuthorizationService.Authorize(authHeader, requiredPermissions))
+                else if (await AuthorizationService.Authorize(authHeader, requiredPermissions))
                 {
-                    ret = dataExec();
+                    ret = await dataExec();
                     switch (ret.Status)
                     {
                         case DataStatusCode.SUCCESS:
-                            response.ResponseCode = HttpStatusCode.OK;
+                            // 200 OK by default
                             break;
                         case DataStatusCode.INVALID:
-                            response.ResponseCode = HttpStatusCode.BadRequest;
-                            break;
+                            throw new HttpResponseException(HttpStatusCode.BadRequest);
                         case DataStatusCode.ERROR:
-                            response.ResponseCode = HttpStatusCode.InternalServerError;
-                            break;
+                            throw new HttpResponseException(HttpStatusCode.InternalServerError);
                         default:
-                            response.ResponseCode = HttpStatusCode.NotImplemented;
-                            break;
+                            throw new HttpResponseException(HttpStatusCode.NotImplemented);
                     }
 
                     if (ret is DataResponse<T>)
                     {
                         var typedRet = (DataResponse<T>)ret;
-                        response.Content = typedRet.HasValue ? (object)transExec(typedRet.Value) : null;
+                        response.Content = typedRet.HasValue ? transExec(typedRet.Value) : default(U);
                     }
                 }
                 else
                 {
-                    response.ResponseCode = HttpStatusCode.Unauthorized;
+                    throw new HttpResponseException(HttpStatusCode.Unauthorized);
                 }
+            }
+            catch (HttpResponseException ex)
+            {
+                // Bubble up
+                throw ex;
             }
             catch (Exception ex)
             {
                 Log.Error($"Exception occurred while creating an api response", ex);
-                response.ResponseCode = HttpStatusCode.InternalServerError;
+                throw new HttpResponseException(HttpStatusCode.InternalServerError);
             }
 
             var queryParams = HttpUtility.ParseQueryString(HttpContext.Current.Request.Url.Query);
@@ -243,7 +250,8 @@ namespace RestEasy.Controllers
             MethodInfo[] infos = GetType().GetMethods();
             Uri requestUri = HttpContext.Current.Request.Url;
 
-            foreach (var v in infos.Where(w => w.IsPublic && w.ReturnType == typeof(ApiResponse)))
+            foreach (var v in infos.Where(w => w.IsPublic && 
+                                    (w.ReturnType == typeof(ApiResponse) || w.ReturnType == typeof(ApiResponse<object>))))
             {
                 RouteAttribute route = v.GetCustomAttribute<RouteAttribute>();
                 RestInfoAttribute restInfo = v.GetCustomAttribute<RestInfoAttribute>();

@@ -38,10 +38,10 @@
       <Private>True</Private>
     </Reference>
     <Reference Include="SandyModels, Version=1.0.0.0, Culture=neutral, processorArchitecture=MSIL">
-      <HintPath>packages\SandyModels.1.0.2\lib\SandyModels.dll</HintPath>
+      <HintPath>..\..\PortfolioAPI\packages\SandyModels.1.0.3\lib\SandyModels.dll</HintPath>
     </Reference>
     <Reference Include="SandyUtils, Version=1.0.0.0, Culture=neutral, processorArchitecture=MSIL">
-      <HintPath>packages\SandyUtils.1.0.1\lib\SandyUtils.dll</HintPath>
+      <HintPath>..\..\PortfolioAPI\packages\SandyUtils.1.0.3\lib\SandyUtils.dll</HintPath>
     </Reference>
     <Reference Include="System" />
     <Reference Include="System.Core" />
@@ -67,7 +67,6 @@
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="Services\IAuthorizationService.cs" />
   </ItemGroup>
-  <ItemGroup />
   <ItemGroup>
     <None Include="packages.config" />
   </ItemGroup>
