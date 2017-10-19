@@ -250,8 +250,7 @@ namespace RestEasy.Controllers
             MethodInfo[] infos = GetType().GetMethods();
             Uri requestUri = HttpContext.Current.Request.Url;
 
-            foreach (var v in infos.Where(w => w.IsPublic && 
-                                    (w.ReturnType == typeof(ApiResponse) || w.ReturnType == typeof(ApiResponse<object>))))
+            foreach (var v in infos.Where(w => w.IsPublic && w.GetCustomAttribute(typeof(RouteAttribute)) != default(Attribute)))
             {
                 RouteAttribute route = v.GetCustomAttribute<RouteAttribute>();
                 RestInfoAttribute restInfo = v.GetCustomAttribute<RestInfoAttribute>();
